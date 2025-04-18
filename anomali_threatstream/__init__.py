@@ -1,1 +1,0 @@
-"""Anomali ThreatStream Plugin."""
