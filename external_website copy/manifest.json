@@ -1,0 +1,77 @@
+{
+    "name": "Web Page IOC Scraper",
+    "id": "external_website",
+    "version": "1.2.0-hotfix",
+    "description": "This plugin is used to pull IOCs of type URL, Domain, IPv4, IPv6, MD5 and SHA256 from any public website. This plugin does not support sharing of IOCs or performing any actions.",
+    "patch_supported": false,
+    "push_supported": false,
+    "configuration": [
+        {
+            "label": "Website URL",
+            "key": "url",
+            "type": "text",
+            "mandatory": true,
+            "default": "",
+            "description": "Add URL of public website from where you want to pull data."
+        },
+        {
+            "label": "Type of Threat data to pull",
+            "key": "type",
+            "type": "multichoice",
+            "choices": [
+                {
+                    "key": "SHA256",
+                    "value": "sha256"
+                },
+                {
+                    "key": "MD5",
+                    "value": "md5"
+                },
+                {
+                    "key": "URL",
+                    "value": "url"
+                },
+                {
+                    "key": "Domain",
+                    "value": "domain"
+                },
+                {
+                    "key": "IPv4",
+                    "value": "ipv4"
+                },
+                {
+                    "key": "IPv6",
+                    "value": "ipv6"
+                }
+            ],
+            "default": [
+                "sha256",
+                "md5",
+                "url",
+                "domain",
+                "ipv4",
+                "ipv6"
+            ],
+            "mandatory": true,
+            "description": "Type of Threat data to pull. Allowed values are SHA256, MD5, URL, Domain, IPv4, IPv6."
+        },
+        {
+            "label": "Extract Domains from URL",
+            "key": "extract_domains",
+            "type": "choice",
+            "choices": [
+                {
+                    "key": "Yes",
+                    "value": "yes"
+                },
+                {
+                    "key": "No",
+                    "value": "no"
+                }
+            ],
+            "mandatory": false,
+            "default": "yes",
+            "description": "Choose whether to extract only the domain name or use the entire URL. For example, if the URL is google.com/abc/xyz, selecting 'Yes' will extract google.com, while selecting 'No' will use the full URL google.com/abc/xyz. Note: This setting is applicable only when the indicator type 'URL' is selected in the 'Type of Threat Data to Pull' configuration parameter."
+        }
+    ]
+}
