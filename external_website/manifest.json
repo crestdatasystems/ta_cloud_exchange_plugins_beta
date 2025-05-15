@@ -5,6 +5,7 @@
     "description": "This plugin is used to pull IOCs of type URL, Domain, IPv4, IPv6, MD5 and SHA256 from any public website. This plugin does not support sharing of IOCs or performing any actions.",
     "patch_supported": false,
     "push_supported": false,
+    "module": "CTE",
     "configuration": [
         {
             "label": "Website URL",
