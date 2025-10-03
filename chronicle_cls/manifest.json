@@ -1,0 +1,72 @@
+{
+  "name": "Google Chronicle",
+  "id": "chronicle",
+  "version": "2.2.0-hotfix",
+  "mapping": "Chronicle Default Mappings",
+  "module": "CLS",
+  "description": "This plugin is used to deliver alerts (DLP, Malware, Policy, Compromised Credential, Malsite, Quarantine, Remediation, Security Assessment, Watchlist, UBA, CTEP, Anomaly, Legal Hold) and events (Page, Application, Audit, Infrastructure, Network, Incident) data to Google Chronicle platform. The plugin supports sharing of UDM and JSON formatted data. The required API keys are linked to customers and are provided by your Google Chronicle representative.",
+  "types": [
+    "events",
+    "alerts"
+  ],
+  "configuration": [
+    {
+      "label": "Region",
+      "key": "region",
+      "type": "choice",
+      "choices": [
+        {
+          "key": "United States",
+          "value": "usa"
+        },
+        {
+          "key": "European Union",
+          "value": "europe"
+        },
+        {
+          "key": "Asia",
+          "value": "asia"
+        },
+        {
+          "key": "Custom Region",
+          "value": "custom"
+        }
+      ],
+      "default": "usa",
+      "mandatory": true,
+      "description": "Region where your Chronicle customer account is provisioned."
+    },
+    {
+      "label": "Custom Region URL",
+      "key": "custom_region",
+      "type": "text",
+      "default": "",
+      "mandatory": false,
+      "description": "Enter a custom region base URL if you've selected Custom Region for the value of Region."
+    },
+    {
+      "label": "Service Account Key",
+      "key": "service_account_key",
+      "type": "textarea",
+      "default": "",
+      "mandatory": true,
+      "description": "Enter a Service Account Credentials."
+    },
+    {
+      "label": "Customer ID",
+      "key": "customer_id",
+      "type": "text",
+      "default": "",
+      "mandatory": true,
+      "description": "Unique identifier (UUID) corresponding to a particular Chronicle instance. Provided by your Chronicle representative."
+    },
+    {
+      "label": "Log Source Identifier",
+      "key": "log_source_identifier",
+      "type": "text",
+      "default": "netskopece",
+      "mandatory": false,
+      "description": "This will be added as namespace to all the JSON formatted data. The log source identifier should not contain whitespaces."
+  }
+  ]
+}
