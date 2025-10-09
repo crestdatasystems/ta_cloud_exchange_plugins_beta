@@ -1,0 +1,38 @@
+{
+    "name": "Netskope Risk Exchange",
+    "description": "This plugin is used to fetch Users from UBA Alerts, Applications from Applications Events, and Devices from Client Status Events of the Netskope Tenant. This plugin also supports 'Add user to group', 'Remove user from group', 'Update UCI score', 'UCI Reset', 'Add host to Private App', 'Create or Update App Instance', 'Tag/Untag Application', 'No Action' and 'Mark Anomaly as allowed' is also supported for 'Update UCI score' action.",
+    "id": "netskope_ztre",
+    "minimum_version": "6.0.0",
+    "minimum_provider_version": "1.4.0",
+    "provider_id": "netskope_provider",
+    "netskope": true,
+    "version": "1.5.1-hotfix",
+    "module": "CRE",
+    "supported_subtypes": {
+        "alerts": [
+            "uba"
+        ],
+        "events": [
+            "application",
+            "clientstatus"
+        ]
+    },
+    "configuration": [
+        {
+            "label": "Initial Range for Events (in hours)",
+            "key": "initial_range",
+            "type": "number",
+            "mandatory": true,
+            "default": 1,
+            "description": "Number of hours to pull the app data for the initial run."
+        },
+        {
+            "label": "Initial Range for Alerts (in days)",
+            "key": "days",
+            "type": "number",
+            "mandatory": true,
+            "default": 7,
+            "description": "Number of days to pull the data for the initial run."
+        }
+    ]
+}
