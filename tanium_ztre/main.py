@@ -342,15 +342,22 @@ class TaniumPlugin(PluginBase):
                         f"fetching {logger_msg}"
                     ),
                 )
-                
                 # If response is empty then break the loop
                 if not resp_json or not isinstance(resp_json, dict):
                     break
-                page_devices_list = (
-                    resp_json.get("data", {})
-                    .get("endpoints", {})
-                    .get("edges", [])
-                )
+                
+                data = resp_json.get("data", {})
+                if not data or not isinstance(data, dict):
+                    break
+                endpoints = data.get("endpoints", {})
+                if not endpoints or not isinstance(endpoints, dict):
+                    break
+                page_devices_list = endpoints.get("edges", [])
+                if (
+                    not page_devices_list or
+                    not isinstance(page_devices_list, list)
+                ):
+                    break
                 curr_devices_count = len(page_devices_list)
                 page_devices_count = 0
                 page_devices_skip_count = 0
@@ -397,13 +404,18 @@ class TaniumPlugin(PluginBase):
                 # If current page has less than DEVICE_PAGE_COUNT(5000)
                 # records or hasNextPage value in pageInfo is False then
                 # break the loop
-                page_info = (
-                    resp_json.get("data", {})
-                    .get("endpoints", {})
-                    .get("pageInfo", {})
-                )
+                data = resp_json.get("data", {})
+                if not data or not isinstance(data, dict):
+                    break
+                endpoints = data.get("endpoints", {})
+                if not endpoints or not isinstance(endpoints, dict):
+                    break
+                page_info = endpoints.get("pageInfo", {})
+                if not page_info or not isinstance(page_info, dict):
+                    break
+                hasNextPage = page_info.get("hasNextPage", False)
                 if (
-                    not page_info.get("hasNextPage", False) or
+                    not hasNextPage or
                     (curr_devices_count < DEVICE_PAGE_COUNT)
                 ):
                     break
