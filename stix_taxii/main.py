@@ -1073,15 +1073,26 @@ class STIXTAXIIPlugin(PluginBase):
             plugin_name=self.plugin_name, plugin_version=self.plugin_version
         )
         if version == STIX_VERSION_21:
-            pages = as_pages21(
-                func,
-                plugin=self,
-                per_request=batch_size,
-                added_after=start_time,
-                next=next,
-                with_header=True,
-                headers=headers,
-            )
+            # Only pass added_after when next token is not present
+            # Many TAXII servers reject requests with both parameters
+            if next:
+                pages = as_pages21(
+                    func,
+                    plugin=self,
+                    per_request=batch_size,
+                    next=next,
+                    with_header=True,
+                    headers=headers,
+                )
+            else:
+                pages = as_pages21(
+                    func,
+                    plugin=self,
+                    per_request=batch_size,
+                    added_after=start_time,
+                    with_header=True,
+                    headers=headers,
+                )
         else:
             pages = as_pages20(
                 func,
