@@ -411,7 +411,7 @@ class NetskopePlugin(PluginBase):
             k: (
                 str(v)
                 if not (
-                    isinstance(v, int) or isinstance(v, float) or isinstance(v, bool)
+                    v is None or isinstance(v, int) or isinstance(v, float) or isinstance(v, bool)
                 )
                 else v
             )
