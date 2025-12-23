@@ -858,17 +858,75 @@ class NetskopeClient:
                 self.message_queue.put(([], sub_type, should_apply_expo_backoff, True))
 
     def filter_data(self, data: List) -> List:
-        """Return filtered data."""
+        """Return filtered data within the time range [start_time, end_time]."""
         filtered = []
-        for i in range(len(data)):
-            timestamp = data[i].get("timestamp", 0)
+        filtered_out_before = 0
+        filtered_out_after = 0
+        timestamp_before = []
+        timestamp_after = []
+
+        for record in data:
+            timestamp = record.get("timestamp", 0)
+            if timestamp <= self.end_time:
+                filtered.append(record)
+            if timestamp < self.start_time:
+                filtered_out_before += 1
+                timestamp_before.append(timestamp)
             if timestamp > self.end_time:
-                return filtered
-            filtered.append(data[i])
+                filtered_out_after += 1
+                timestamp_after.append(timestamp)
+        # Log only if records were filtered out (helps debugging without noise)
+        if filtered_out_before > 0 or filtered_out_after > 0:
+            filter_details = (
+                f"Filter Summary:\n"
+                f"  - Input Records: {len(data)}\n"
+                f"  - Accepted Records: {len(filtered)}\n"
+                f"  - Before Start Time (before start_time {self.start_time}): {filtered_out_before}\n"
+                f"  - After End Time (after end_time {self.end_time}): {filtered_out_after}\n"
+                f"  - Start Time: {datetime.fromtimestamp(self.start_time)}\n"
+                f"  - End Time: {datetime.fromtimestamp(self.end_time)}"
+            )
+            logger.debug(
+                message=(
+                    f"{self.log_prefix}: [HISTORICAL_FILTER_DATA_LOG] Input: {len(data)}, Accepted: {len(filtered)}, "
+                    f"Filtered (before start_time): {filtered_out_before}, Filtered (after end_time): {filtered_out_after}"
+                ),
+                details=filter_details
+            )
+            logger.debug(
+                message=f"{self.log_prefix}: [HISTORICAL_FILTER_DATA_LOG] Timestamp before:",
+                details=str(timestamp_before)
+            )
+            logger.debug(
+                message=f"{self.log_prefix}: [HISTORICAL_FILTER_DATA_LOG] Timestamp after:",
+                details=str(timestamp_after)
+            )
+        
         return filtered
 
     def load_historical(self, sub_type: str, iterator_name: str):
         """Pull historical data from Netskope."""
+        start_details = (
+            f"Historical Pull Configuration:\n"
+            f"  - Sub Type: {sub_type}\n"
+            f"  - Data Type: {self.type}\n"
+            f"  - Iterator Name: {iterator_name}\n"
+            f"  - Tenant: {self.tenant_name}\n"
+            f"  - Start Time: {self.start_time} ({datetime.fromtimestamp(self.start_time)})\n"
+            f"  - End Time: {self.end_time} ({datetime.fromtimestamp(self.end_time)})\n"
+            f"  - Duration: {(self.end_time - self.start_time) / 3600:.2f} hours\n"
+            f"  - Source Config: {self.source_configuration}\n"
+            f"  - Destination Config: {self.destination_configuration}\n"
+            f"  - Business Rule: {self.business_rule}"
+        )
+        logger.debug(
+            message=(
+                f"{self.log_prefix}: [HISTORICAL_PULL_START] Starting historical pull for {sub_type} {self.type}. "
+                f"Time range: {datetime.fromtimestamp(self.start_time)} to {datetime.fromtimestamp(self.end_time)} "
+                f"(epoch: {self.start_time} - {self.end_time}), Iterator: {iterator_name}"
+            ),
+            details=start_details
+        )
         iterator = self.get_iterator(sub_type, iterator_name, is_historical=True)
         # registered = connector.collection(Collections.ITERATOR).find_one(
         #     {"name": self.iterator_name % sub_type}
@@ -876,6 +934,11 @@ class NetskopeClient:
 
         # if not registered:
         iterator.set_timestamp(self.start_time)
+        
+        # Track total records for summary
+        total_raw_records = 0
+        total_filtered_records = 0
+        iteration_count = 0
 
         pull_time = None
         try:
@@ -916,6 +979,7 @@ class NetskopeClient:
                     return {"success": False}
 
                 response = iterator.pull()
+                iteration_count += 1
 
                 if not response or response.get("ok") != 1:
                     logger.error(
@@ -926,10 +990,73 @@ class NetskopeClient:
                     )
                     return {"success": False}
 
-                if response.get(CONST.TIMESTAMP_HWM, 0) > self.end_time or (
-                    pull_time == response.get(CONST.TIMESTAMP_HWM, 0)
-                    and not len(response.get(CONST.RESULT, []))
-                ):
+                current_hwm = response.get(CONST.TIMESTAMP_HWM, 0)
+                current_result = response.get(CONST.RESULT, [])
+                total_raw_records += len(current_result)
+                
+                # Check if we should terminate AFTER processing this batch
+                should_terminate = current_hwm > self.end_time or (
+                    pull_time == current_hwm
+                    and not len(current_result)
+                )
+                
+                # FIX: Even if HWM > end_time, we should still process the current batch
+                # because it may contain records that are within the time range
+                if should_terminate and current_result:
+                    # Process the final batch before terminating
+                    filtered_data = self.filter_data(current_result)
+                    total_filtered_records += len(filtered_data)
+                    final_batch_details = (
+                        f"Final Batch Processing Details:\n"
+                        f"  - Iteration: {iteration_count}\n"
+                        f"  - Current HWM: {current_hwm} ({datetime.fromtimestamp(current_hwm)})\n"
+                        f"  - End Time: {self.end_time} ({datetime.fromtimestamp(self.end_time)})\n"
+                        f"  - HWM > End Time: {current_hwm > self.end_time}\n"
+                        f"  - Raw Records in Batch: {len(current_result)}\n"
+                        f"  - Filtered Records in Batch: {len(filtered_data)}\n"
+                        f"  - Running Total Raw: {total_raw_records}\n"
+                        f"  - Running Total Filtered: {total_filtered_records}"
+                    )
+                    logger.debug(
+                        message=(
+                            f"{self.log_prefix}: [HISTORICAL_FINAL_BATCH] Processing final batch. "
+                            f"HWM: {current_hwm} ({datetime.fromtimestamp(current_hwm)}), "
+                            f"Raw: {len(current_result)}, Filtered: {len(filtered_data)}"
+                        ),
+                        details=final_batch_details
+                    )
+                    if filtered_data:
+                        # If sub type is incident and forensics enabled, enrich
+                        if sub_type == CONST.EVENTS.get("incident") and self.incident_enrichment:
+                            filtered_data = self.enrich_incident_data(filtered_data)
+                        if self.compress_historical_data:
+                            filtered_data = gzip.compress(json.dumps({CONST.RESULT: filtered_data}).encode('utf-8'), compresslevel=3)
+                        self.message_queue.put((filtered_data, sub_type, False, True))
+                    
+                    complete_details = (
+                        f"Historical Pull Summary:\n"
+                        f"  - Sub Type: {sub_type}\n"
+                        f"  - Data Type: {self.type}\n"
+                        f"  - Tenant: {self.tenant.get('name')}\n"
+                        f"  - Iterator: {iterator_name}\n"
+                        f"  - Start Time: {self.start_time} ({datetime.fromtimestamp(self.start_time)})\n"
+                        f"  - End Time: {self.end_time} ({datetime.fromtimestamp(self.end_time)})\n"
+                        f"  - Final HWM: {current_hwm} ({datetime.fromtimestamp(current_hwm)})\n"
+                        f"  - Total Iterations: {iteration_count}\n"
+                        f"  - Total Raw Records: {total_raw_records}\n"
+                        f"  - Total Filtered Records: {total_filtered_records}\n"
+                        f"  - Records Filtered Out: {total_raw_records - total_filtered_records}\n"
+                        f"  - Termination Reason: HWM exceeded end_time (final batch processed)"
+                    )
+                    logger.debug(
+                        message=(
+                            f"{self.log_prefix}: [HISTORICAL_PULL_COMPLETE] "
+                            f"Historical pulling of {sub_type} {self.type}(s) for tenant {self.tenant.get('name')} "
+                            f"completed. Time window: {datetime.fromtimestamp(self.start_time)} to {datetime.fromtimestamp(self.end_time)}. "
+                            f"Total iterations: {iteration_count}, Raw records: {total_raw_records}, Filtered records: {total_filtered_records}"
+                        ),
+                        details=complete_details
+                    )
                     logger.info(
                         f"{self.log_prefix}: "
                         f"Historical pulling of {sub_type} {self.type}(s) for tenant {self.tenant.get('name')} "
@@ -937,8 +1064,37 @@ class NetskopeClient:
                         f"to {datetime.fromtimestamp(self.end_time)}."
                     )
                     return {"success": True}
+                
+                # If we should terminate but no data in current batch, just return
+                if should_terminate:
+                    complete_details_no_data = (
+                        f"Historical Pull Summary:\n"
+                        f"  - Sub Type: {sub_type}\n"
+                        f"  - Data Type: {self.type}\n"
+                        f"  - Tenant: {self.tenant.get('name')}\n"
+                        f"  - Iterator: {iterator_name}\n"
+                        f"  - Start Time: {self.start_time} ({datetime.fromtimestamp(self.start_time)})\n"
+                        f"  - End Time: {self.end_time} ({datetime.fromtimestamp(self.end_time)})\n"
+                        f"  - Final HWM: {current_hwm} ({datetime.fromtimestamp(current_hwm)})\n"
+                        f"  - Total Iterations: {iteration_count}\n"
+                        f"  - Total Raw Records: {total_raw_records}\n"
+                        f"  - Total Filtered Records: {total_filtered_records}\n"
+                        f"  - Records Filtered Out: {total_raw_records - total_filtered_records}\n"
+                        f"  - Termination Reason: HWM exceeded end_time or no more data"
+                    )
+                    logger.debug(
+                        message=(
+                            f"{self.log_prefix}: [HISTORICAL_PULL_COMPLETE] "
+                            f"Historical pulling of {sub_type} {self.type}(s) for tenant {self.tenant.get('name')} "
+                            f"completed. Time window: {datetime.fromtimestamp(self.start_time)} to {datetime.fromtimestamp(self.end_time)}. "
+                            f"Total iterations: {iteration_count}, Raw records: {total_raw_records}, Filtered records: {total_filtered_records}"
+                        ),
+                        details=complete_details_no_data
+                    )
+                    return {"success": True}
 
-                filtered_data = self.filter_data(response.get(CONST.RESULT, []))
+                filtered_data = self.filter_data(current_result)
+                total_filtered_records += len(filtered_data)
                 pull_time = response.get(CONST.TIMESTAMP_HWM, 0)
                 pull_message = (
                     f" until {datetime.fromtimestamp(pull_time)} " if pull_time else " "

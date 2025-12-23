@@ -1,3 +1,7 @@
+# 1.5.4-hotfix
+## Fixed
+- Updated historical pulling to process last batch.
+
 # 1.5.3
 ## Changed
 - Improved exception handling when forensics service is not enabled on Netskope Tenant.
