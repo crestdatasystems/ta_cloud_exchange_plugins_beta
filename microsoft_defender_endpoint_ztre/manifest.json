@@ -71,6 +71,14 @@
       "mandatory": true,
       "default": "",
       "description": "Secret value of Microsoft Entra ID Application."
+    },
+    {
+      "label": "Fetch User Details from Alerts Evidences",
+      "key": "fetch_user_details",
+      "type": "boolean",
+      "mandatory": false,
+      "default": false,
+      "description": "Fetch user details from alerts evidences."
     }
   ]
 }
