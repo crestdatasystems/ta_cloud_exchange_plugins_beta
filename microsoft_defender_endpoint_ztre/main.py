@@ -27,7 +27,7 @@ DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
 SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF IDVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 CRE Microsoft Defender for Endpoint Plugin.
 """
@@ -38,7 +38,7 @@ import jwt
 import traceback
 import requests
 from typing import List
-
+from netskope.integrations.crev2.utils import get_latest_values
 from netskope.integrations.crev2.models import (
     Action,
     ActionWithoutParams
@@ -167,7 +167,7 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
             self.logger.error(
                 f"{self.log_prefix}: {raise_msg}"
             )
-            return
+            raise MicrosoftDefenderEndpointPluginException(raise_msg)
 
         self.defender_endpoint_helper.handle_error(
             response, logger_msg
@@ -429,27 +429,37 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
             None
         """
         action_label = action.label
-        action_parameters = action.parameters
+        action_parameters = get_latest_values(action.parameters)
         if action.value == "generate":
             return
 
-        machine_id = action_parameters.get("machine_id", "").strip()
+        machine_id = action_parameters.get("machine_id", "")
+        if not isinstance(machine_id, str):
+            err_msg = (
+                "Invalid Device ID/Computer DNS Name found in the action parameters. "
+                f"Hence, skipping execution of '{action_label}' action."
+            )
+            self.logger.error(f"{self.log_prefix}: {err_msg}")
+            raise MicrosoftDefenderEndpointPluginException(err_msg)
+        machine_id = machine_id.strip()
         if not machine_id:
             err_msg = (
                 "Device ID/Computer DNS Name not found in the action parameters. "
                 f"Hence, skipping execution of '{action_label}' action."
             )
             self.logger.error(f"{self.log_prefix}: {err_msg}")
-            return
-        elif not isinstance(machine_id, str):
+            raise MicrosoftDefenderEndpointPluginException(err_msg)
+
+        comment = action_parameters.get("comment", "")
+        if not isinstance(comment, str):
             err_msg = (
-                "Invalid Device ID/Computer DNS Name found in the action parameters. "
-                f"Hence, skipping execution of '{action_label}' action."
+                "Invalid comment found in the action parameters. "
+                f"Hence, skipping execution of '{action_label}' "
+                f"for device '{machine_id}'. Comment should be a string."
             )
             self.logger.error(f"{self.log_prefix}: {err_msg}")
-            return
-
-        comment = action_parameters.get("comment", "").strip()
+            raise MicrosoftDefenderEndpointPluginException(err_msg)
+        comment = comment.strip()
         if not comment:
             err_msg = (
                 "Comment not found in the action parameters. "
@@ -457,15 +467,7 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                 f"for device '{machine_id}'."
             )
             self.logger.error(f"{self.log_prefix}: {err_msg}")
-            return
-        elif not isinstance(comment, str):
-            err_msg = (
-                "Invalid comment found in the action parameters. "
-                f"Hence, skipping execution of '{action_label}' "
-                f"for device '{machine_id}'."
-            )
-            self.logger.error(f"{self.log_prefix}: {err_msg}")
-            return
+            raise MicrosoftDefenderEndpointPluginException(err_msg)
         elif len(comment) > 4000:
             err_msg = (
                 "Comment is too long. "
@@ -474,13 +476,12 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                 "Comment length should be less than 4000 characters."
             )
             self.logger.error(f"{self.log_prefix}: {err_msg}")
-            return
+            raise MicrosoftDefenderEndpointPluginException(err_msg)
 
         self.logger.debug(
             f"{self.log_prefix}: Executing '{action_label}' action "
             f"for device '{machine_id}'."
         )
-
 
         logger_msg = f"executing '{action_label}' action"
         headers = self.defender_endpoint_helper.get_auth_json(
@@ -682,7 +683,7 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
             if action_value == "isolate_machine":
                 if "$" in action_params.get("isolation_type", ""):
                     err_msg = (
-                        "Isolation Type contains the Business Rule Record Field."
+                        "Isolation Type contains the Source Field."
                         " Please select Isolation Type from Static Field dropdown only."
                     )
                     self.logger.error(f"{self.log_prefix}: {err_msg}")
@@ -705,7 +706,7 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
             if action_value == "run_antivirus_scan":
                 if "$" in action_params.get("scan_type", ""):
                     err_msg = (
-                        "Scan Type contains the Business Rule Record Field."
+                        "Scan Type contains the Source Field."
                         " Please select Scan Type from Static Field dropdown only."
                     )
                     self.logger.error(f"{self.log_prefix}: {err_msg}")
@@ -907,7 +908,19 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                 options={"verify_signature": False},
             )
             roles = set(decoded_auth_token.get("roles", []))
+            fetch_user_details = configuration.get("fetch_user_details", False)
+            
             if ("Machine.ReadWrite.All" in roles or "Machine.Read.All" in roles) and "User.Read.All" in roles:
+                if fetch_user_details and "Alert.Read.All" not in roles:
+                    err_msg = (
+                        "'Alert.Read.All' permission is required to fetch user details from alerts evidences when "
+                        "'Fetch User Details from Alerts Evidences' is enabled."
+                    )
+                    self.logger.error(
+                        message=f"{self.log_prefix}: {err_msg}",
+                        details=str(traceback.format_exc()),
+                    )
+                    raise MicrosoftDefenderEndpointPluginException(err_msg)
                 isValid = True
 
             if isValid:
@@ -944,8 +957,10 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                 err_msg = (
                     "Couldn't find required API permissions. "
                     "'Machine.Read.All' or 'Machine.ReadWrite.All' and 'User.Read.All'"
-                    " permissions is required."
+                    " permissions are required."
                 )
+                if fetch_user_details:
+                    err_msg += " Additionally, 'Alert.Read.All' permission is required when 'Fetch User Details from Alerts Evidences' is enabled."
                 self.logger.error(
                         message=f"{self.log_prefix}: {err_msg}",
                         details=traceback.format_exc(),
@@ -1025,6 +1040,88 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
             )
         return user_list
 
+    def _fetch_user_emails_from_alerts(self, base_url, headers):
+        """Fetch user emails from alerts API with evidence expansion.
+        
+        Args:
+            base_url (str): Base URL for the API
+            headers (dict): Request headers with authentication
+            
+        Returns:
+            dict: Dictionary mapping computer DNS names to user principal names
+        """
+        self.logger.info(
+            f"{self.log_prefix}: Fetching user email details from alerts API "
+            f"with evidence expansion from {PLATFORM_NAME} platform."
+        )
+        
+        device_user_map = {}
+        url = f"{base_url}/api/alerts"
+        params = {"$expand": "evidence"}
+        page_count = 1
+        
+        try:
+            while url:
+                self.logger.debug(
+                    f"{self.log_prefix}: Fetching alerts page {page_count} "
+                    f"from {PLATFORM_NAME} platform."
+                )
+                
+                resp_json = self.defender_endpoint_helper.api_helper(
+                    url=url,
+                    method="GET",
+                    headers=headers,
+                    params=params if page_count == 1 else None,
+                    proxies=self.proxy,
+                    verify=self.ssl_validation,
+                    logger_msg=f"fetching alerts with evidence from {PLATFORM_NAME}"
+                )
+                
+                alerts = resp_json.get("value", [])
+                
+                for alert in alerts:
+                    computer_dns_name = alert.get("computerDnsName", "")
+                    if not computer_dns_name:
+                        continue
+                    
+                    evidences = alert.get("evidence", [])
+                    for evidence in evidences:
+                        if evidence.get("entityType") == "User":
+                            user_principal_name = evidence.get("userPrincipalName", "")
+                            if user_principal_name:
+                                if computer_dns_name not in device_user_map:
+                                    device_user_map[computer_dns_name] = set()
+                                device_user_map[computer_dns_name].add(user_principal_name)
+                
+                self.logger.debug(
+                    f"{self.log_prefix}: Processed {len(alerts)} alerts in page {page_count}. "
+                    f"Total devices with user emails: {len(device_user_map)}."
+                )
+                
+                url = resp_json.get("@odata.nextLink")
+                page_count += 1
+                params = None
+            
+            device_user_map_list = {k: list(v) for k, v in device_user_map.items()}
+            
+            self.logger.info(
+                f"{self.log_prefix}: Successfully fetched user email details for "
+                f"{len(device_user_map_list)} device(s) from alerts API."
+            )
+            
+            return device_user_map_list
+            
+        except Exception as exp:
+            err_msg = (
+                f"Error occurred while fetching user emails from alerts API. "
+                f"Error: {exp}"
+            )
+            self.logger.error(
+                message=f"{self.log_prefix}: {err_msg}",
+                details=str(traceback.format_exc()),
+            )
+            return {}
+
     def fetch_records(self, entity: str) -> List:
         """Pull Records from Microsoft Defender Endpoint.
 
@@ -1042,6 +1139,7 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
         total_records = []
         page_count = 1
         skip_count = 0
+        skip_records_count = 0
         entity_name = entity.lower()
 
         headers = self.defender_endpoint_helper.get_auth_json(
@@ -1086,16 +1184,32 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                             }
                             total_records.append(currRecord)
                         elif entity == "Users":
-                            device_id = each_user.get("computerDnsName", "")
-                            currRecord = self._fetch_users(device_id, base_url, headers)
-                            total_records.extend(currRecord)
+                            device_id = (
+                                each_user.get("computerDnsName", "") or
+                                each_user.get("id", "")
+                            )
+                            if device_id:
+                                currRecord = self._fetch_users(
+                                    device_id,
+                                    base_url,
+                                    headers
+                                )
+                                total_records.extend(currRecord)
+                            else:
+                                skip_records_count += 1
                     except Exception as err:
+                        device_id = each_user.get("id", "Device ID Not Found.")
+                        error_msg = (
+                            f"{self.log_prefix}: Skip fetching device with "
+                            f"id {device_id}."
+                        )
+                        if entity == "Users":
+                            error_msg = (
+                                f"{self.log_prefix}: Skip fetching user(s) "
+                                f"from device with id {device_id}."
+                            )
                         self.logger.error(
-                            message="{}: Skipping {} with id {}.".format(
-                                self.log_prefix,
-                                entity[:-1],
-                                each_user.get("id", "Device ID Not Found."),
-                            ),
+                            message=error_msg,
                             details="Error Details: {}. \nRecord Data: {}".format(
                                 err, each_user
                             ),
@@ -1128,6 +1242,12 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                     details=str(traceback.format_exc()),
                 )
                 raise MicrosoftDefenderEndpointPluginException(err_msg)
+        if skip_records_count > 0:
+            self.logger.info(
+                f"{self.log_prefix}: Skipped fetching {entity_name} "
+                f"from {skip_records_count} device(s) as Computer Name "
+                f"or Device ID is not available."
+            )
         self.logger.info(
             f"{self.log_prefix}: Successfully fetched {len(total_records)}"
             f" {entity_name} from {PLATFORM_NAME} platform."
@@ -1169,6 +1289,11 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
             logger_msg
         )
         headers = self.get_headers(headers)
+        
+        device_user_email_map = {}
+        fetch_user_details = self.configuration.get("fetch_user_details", False)
+        if fetch_user_details:
+            device_user_email_map = self._fetch_user_emails_from_alerts(base_url, headers)
         while True:
             try:
                 self.logger.debug(
@@ -1235,8 +1360,10 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
         user_count = 0
         for record in records:
             try:
-                if record["Computer Name"] in score_users:
-                    record["Risk Score"] = score_users[record["Computer Name"]]
+                computer_name = record.get("Computer Name", "")
+                
+                if computer_name in score_users:
+                    record["Risk Score"] = score_users[computer_name]
 
                     risk_level = record.get("Risk Score", "")
                     if (
@@ -1251,15 +1378,23 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                     elif risk_level == "High":
                         record["Netskope Normalized Score"] = 375
                     user_count += 1
+                
+                if fetch_user_details and computer_name in device_user_email_map:
+                    user_emails = device_user_email_map[computer_name]
+                    #! Note: here note that as of now we are ruturning the user_emails as list of emails, 
+                    #! need to check this behavior and if we should keep it as string
+                    if user_emails:
+                        record["Device User Email"] = user_emails
+                
                 for k, v in list(record.items()):
                     if v is None:
                         record.pop(k)
             except Exception as error:
                 self.logger.error(
-                    message={
-                        "{}: Error occurred while updating record"
-                        " for device {}.".format(self.log_prefix, record["computerDnsName"])
-                    },
+                    message=(
+                        f"{self.log_prefix}: Error occurred while updating record"
+                        f" for device {str(record.get('Computer Name', 'Unknown'))}."
+                    ),
                     details=f"Error details: {error}",
                 )
         self.logger.info(
@@ -1276,6 +1411,7 @@ class MicrosoftDefenderEndpointPlugin(PluginBase):
                 fields=[
                     EntityField(name="Device ID", type=EntityFieldType.STRING),
                     EntityField(name="Computer Name", type=EntityFieldType.STRING, required=True),
+                    EntityField(name="Device User Email", type=EntityFieldType.REFERENCE),
                     EntityField(name="OS", type=EntityFieldType.STRING),
                     EntityField(name="Last IP Address", type=EntityFieldType.STRING),
                     EntityField(name="Risk Score", type=EntityFieldType.STRING),
