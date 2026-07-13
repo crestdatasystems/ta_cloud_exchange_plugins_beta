@@ -38,8 +38,6 @@ import traceback
 import time
 from typing import Dict, Union
 from requests.exceptions import ReadTimeout
-from netskope.common.api import __version__ as CE_VERSION
-from packaging import version
 
 import requests
 from netskope.common.utils import add_user_agent
@@ -47,14 +45,14 @@ from .constants import (
     PLATFORM_NAME,
     MODULE_NAME,
     MAX_API_CALLS,
-    MAXIMUM_CE_VERSION,
     DEFAULT_WAIT_TIME,
     RATELIMIT_RESET,
     RATELIMIT_REMAINING,
-    CLIENT_STATUS_ITERATOR_NAME
+    CLIENT_STATUS_ITERATOR_NAME,
 )
 
 from netskope.common.utils.plugin_provider_helper import PluginProviderHelper
+
 plugin_provider_helper = PluginProviderHelper()
 
 
@@ -78,11 +76,7 @@ class NetskopePluginHelper(object):
     """
 
     def __init__(
-        self,
-        logger,
-        log_prefix: str,
-        plugin_name: str,
-        plugin_version: str
+        self, logger, log_prefix: str, plugin_name: str, plugin_version: str
     ):
         """Netskope Provider Plugin Helper initializer.
 
@@ -96,33 +90,6 @@ class NetskopePluginHelper(object):
         self.logger = logger
         self.plugin_name = plugin_name
         self.plugin_version = plugin_version
-        self.resolution_support = version.parse(CE_VERSION) > version.parse(
-            MAXIMUM_CE_VERSION
-        )
-        self.is_ce_version_greater_than_512 = self.resolution_support
-        # Patch logger methods to handle resolution parameter compatibility
-        self._patch_logger_methods()
-
-    def _patch_logger_methods(self):
-        """patch logger methods to handle resolution parameter
-        compatibility."""
-        # Store original methods
-        original_error = self.logger.error
-
-        def patched_error(
-            message=None, details=None, resolution=None, **kwargs
-        ):
-            """Patched error method that handles resolution compatibility."""
-            log_kwargs = {"message": message}
-            if details:
-                log_kwargs["details"] = details
-            if resolution and self.resolution_support:
-                log_kwargs["resolution"] = resolution
-            log_kwargs.update(kwargs)
-            return original_error(**log_kwargs)
-
-        # Replace logger methods with patched versions
-        self.logger.error = patched_error
 
     def _add_user_agent(self, headers: Union[Dict, None] = None) -> Dict:
         """Add User-Agent in the headers for third-party requests.
@@ -160,7 +127,7 @@ class NetskopePluginHelper(object):
         is_handle_error_required=True,
         is_validation=False,
         regenerate_auth_token=True,
-        handle_rate_limit=False
+        handle_rate_limit=False,
     ):
         """API Helper to perform API request on ThirdParty platform \
         and captures all the possible errors for requests.
@@ -381,7 +348,7 @@ class NetskopePluginHelper(object):
     def honor_rate_limiting(self, headers):
         """
         Identify the response headers carrying the rate limiting value.
-        If the rate limit remaining for this endpoint is 0 then wait for 
+        If the rate limit remaining for this endpoint is 0 then wait for
             the rate limit reset time before sending the response to the client.
         """
         try:
@@ -518,7 +485,7 @@ class NetskopePluginHelper(object):
             else:
                 return
         elif status_code == 204:
-            return {}   
+            return {}
         elif (
             status_code == 400
             and "Only one iterator is allowed per event type. Please use the existing iterator"
@@ -607,7 +574,7 @@ class NetskopePluginHelper(object):
                 details=f"API response: {api_resp}",
             )
             raise NetskopeProviderPluginException(err_msg)
-        
+
     def update_storage(self, tenant_name, iterator_name):
         """
         Insert or Update Client Status iterator in storage.
@@ -620,10 +587,8 @@ class NetskopePluginHelper(object):
         """
         # self.storage["client_status_iterator"] = iterator_name
         update_set = {"client_status_iterator": iterator_name}
-        plugin_provider_helper.update_tenant_storage(
-            tenant_name, update_set
-        )
-    
+        plugin_provider_helper.update_tenant_storage(tenant_name, update_set)
+
     def create_iterator(
         self,
         tenant_url,
@@ -631,7 +596,7 @@ class NetskopePluginHelper(object):
         headers,
         iterator_name,
         proxies=None,
-        is_validation=False
+        is_validation=False,
     ):
         """
         Create Client Status iterator.
@@ -651,8 +616,7 @@ class NetskopePluginHelper(object):
             f"{tenant_url}/api/v2/events/dataexport/iterator/{iterator_name}"
         )
         logger_msg = (
-            "Creating Client Status "
-            f"iterator with name {iterator_name}"
+            "Creating Client Status " f"iterator with name {iterator_name}"
         )
         params = {"eventtype": "clientstatus"}
         # Create New Iterator - first time plugin is saved or if existing iterator does not exists
@@ -667,7 +631,7 @@ class NetskopePluginHelper(object):
             is_validation=is_validation,
         )
         if resp.status_code == 202:
-            match = re.search(r'(netskope_ce[^\s,]+)', resp.text)
+            match = re.search(r"(netskope_ce[^\s,]+)", resp.text)
             if match:
                 iterator_name = match.group(1)
                 log_msg = (
@@ -675,9 +639,7 @@ class NetskopePluginHelper(object):
                     f"iterator with name {iterator_name}"
                 )
                 self.update_storage(tenant_configuration_name, iterator_name)
-                self.logger.info(
-                    f"{self.log_prefix}: {log_msg}"
-                )
+                self.logger.info(f"{self.log_prefix}: {log_msg}")
                 return iterator_name
             else:
                 error_msg = (
@@ -686,39 +648,34 @@ class NetskopePluginHelper(object):
                 )
                 self.logger.error(
                     f"{self.log_prefix}: {error_msg}",
-                    details=f"API Response: {resp.text}"
+                    details=f"API Response: {resp.text}",
                 )
                 raise NetskopeProviderPluginException(
                     f"{error_msg}, check logs for details."
                 )
         else:
-            self.handle_error(
-                resp,
-                logger_msg,
-                is_validation=is_validation
-            )
+            self.handle_error(resp, logger_msg, is_validation=is_validation)
+
     def check_iterator_status(
-        self,
-        tenant_hostname,
-        headers,
-        proxies=None,
-        tenant_storage=None
+        self, tenant_hostname, headers, proxies=None, tenant_storage=None
     ):
         """
         This function is used to check the status of the Client status iterator.
-        
+
         Parameters:
         tenant_hostname (str): The tenant hostname.
         headers (dict): The headers to be sent with the API call.
         proxies (dict): The proxy configuration in case of proxy enabled.
         tenant_storage (dict): The tenant configuration storage.
-        
+
         Returns:
         bool: True if the iterator is ready else False.
         """
-        client_status_storage = tenant_storage.get(
-            "client_status_iterator", ""
-        ) if tenant_storage else ""
+        client_status_storage = (
+            tenant_storage.get("client_status_iterator", "")
+            if tenant_storage
+            else ""
+        )
         if client_status_storage:
             # Check the iterator status
             iterator_name = client_status_storage
@@ -727,15 +684,12 @@ class NetskopePluginHelper(object):
                 tenant_url=tenant_hostname,
                 tenant_configuration_name=self.tenant_name,
                 headers=headers,
-                iterator_name=CLIENT_STATUS_ITERATOR_NAME
-            )        
+                iterator_name=CLIENT_STATUS_ITERATOR_NAME,
+            )
         logger_msg = (
-            "Checking status of iterator "
-            f"with name {iterator_name}"
+            "Checking status of iterator " f"with name {iterator_name}"
         )
-        iterator_status_endpoint = (
-            f"{tenant_hostname}/api/v2/events/dataexport/iterator/{iterator_name}"
-        )
+        iterator_status_endpoint = f"{tenant_hostname}/api/v2/events/dataexport/iterator/{iterator_name}"
         while True:
             resp = self.api_helper(
                 logger_msg=logger_msg,
