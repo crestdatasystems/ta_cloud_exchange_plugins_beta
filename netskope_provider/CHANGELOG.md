@@ -1,6 +1,12 @@
-# 1.5.4-hotfix
+# 1.7.0-hotfix (Requires minimum Cloud Exchange version 6.0.0)
+## Changed
+- Updated the pull retry mechanism with a unified in-pull exponential backoff engine, replacing the legacy @retry decorator for more reliable handling of transient failures. Retries are now strictly bounded by pull windows (or 1 hour for historical pulls).
+- Added recovery for interrupted data streams (including automatic Dataexport resend support) while immediately failing only on authentication/permission errors (401/403).
+
+# 1.6.0
 ## Fixed
-- Updated historical pulling to process last batch.
+- Updated the historical pull logic to ensure that valid events within the requested time range from the last batch are processed.
+- Updated handling for pulling alerts/events from stored checkpoint.
 
 # 1.5.3
 ## Changed
